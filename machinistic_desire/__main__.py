@@ -4,7 +4,6 @@ import argparse
 import concurrent.futures
 import json
 import sys
-import time
 from typing import Any
 
 from .config import DEFAULT_DESIRES, DEFAULT_PRESET, MODEL_PRESETS, RESULTS_DIR
@@ -33,7 +32,9 @@ def _resolve_desires(args: argparse.Namespace):
     return tuple(available[desire_id] for desire_id in args.desire)
 
 
-def _run_one_model(model: str, desires, args: argparse.Namespace) -> dict[str, Any]:
+def _run_one_cell(model: str, desire, args: argparse.Namespace) -> dict[str, Any]:
+    import time
+
     started = time.time()
     response: dict[str, Any] | None = None
     content = ""
@@ -42,16 +43,17 @@ def _run_one_model(model: str, desires, args: argparse.Namespace) -> dict[str, A
         response = chat_completion(
             model=model,
             system_prompt=SYSTEM_PROMPT,
-            user_prompt=build_user_prompt(desires),
+            user_prompt=build_user_prompt((desire,)),
             temperature=args.temperature,
             max_tokens=args.max_tokens,
         )
         content = extract_primary_content(response)
         parsed = extract_json_object(content)
-        normalized_scores = normalize_scores(parsed, desires)
+        normalized_scores = normalize_scores(parsed, (desire,))
         elapsed = round(time.time() - started, 2)
         return {
             "model": model,
+            "desire_id": desire.id,
             "latency_seconds": elapsed,
             "scores": normalized_scores,
             "usage": response.get("usage"),
@@ -62,6 +64,7 @@ def _run_one_model(model: str, desires, args: argparse.Namespace) -> dict[str, A
         elapsed = round(time.time() - started, 2)
         return {
             "model": model,
+            "desire_id": desire.id,
             "latency_seconds": elapsed,
             "error": str(exc),
             "raw_content": content,
@@ -76,16 +79,18 @@ def _run(args: argparse.Namespace) -> int:
     run_dir = build_run_dir(RESULTS_DIR)
     results: list[dict[str, Any]] = []
     model_order = {model: index for index, model in enumerate(models)}
+    desire_order = {desire.id: index for index, desire in enumerate(desires)}
+    jobs = [(model, desire) for model in models for desire in desires]
 
     print(
-        f"Running {len(models)} model(s) across {len(desires)} desire(s) with concurrency={args.max_concurrency}",
+        f"Running {len(jobs)} request(s): {len(models)} model(s) x {len(desires)} desire(s) with concurrency={args.max_concurrency}",
         flush=True,
     )
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, args.max_concurrency)) as executor:
         future_map = {
-            executor.submit(_run_one_model, model, desires, args): model
-            for model in models
+            executor.submit(_run_one_cell, model, desire, args): (model, desire.id)
+            for model, desire in jobs
         }
         completed = 0
         for future in concurrent.futures.as_completed(future_map):
@@ -93,21 +98,20 @@ def _run(args: argparse.Namespace) -> int:
             completed += 1
             results.append(result)
             model = result["model"]
+            desire_id = result["desire_id"]
             if "scores" in result:
                 print(
-                    f"[{completed}/{len(models)}] {model} ok in {result['latency_seconds']}s",
+                    f"[{completed}/{len(jobs)}] {model} :: {desire_id} ok in {result['latency_seconds']}s",
                     flush=True,
                 )
             else:
                 print(
-                    f"[{completed}/{len(models)}] {model} error in {result['latency_seconds']}s: {result['error']}",
+                    f"[{completed}/{len(jobs)}] {model} :: {desire_id} error in {result['latency_seconds']}s: {result['error']}",
                     file=sys.stderr,
                     flush=True,
                 )
-            if args.sleep_seconds and completed < len(models):
-                time.sleep(args.sleep_seconds)
 
-    results.sort(key=lambda item: model_order[item["model"]])
+    results.sort(key=lambda item: (model_order[item["model"]], desire_order[item["desire_id"]]))
 
     score_rows = build_score_rows([item for item in results if "scores" in item])
     summary = {
@@ -147,9 +151,8 @@ def main(argv: list[str] | None = None) -> int:
     run_parser.add_argument("--model", action="append", default=[])
     run_parser.add_argument("--desire", action="append", default=[])
     run_parser.add_argument("--temperature", type=float, default=0.2)
-    run_parser.add_argument("--max-tokens", type=int, default=2200)
-    run_parser.add_argument("--sleep-seconds", type=float, default=0.5)
-    run_parser.add_argument("--max-concurrency", type=int, default=4)
+    run_parser.add_argument("--max-tokens", type=int, default=700)
+    run_parser.add_argument("--max-concurrency", type=int, default=6)
     run_parser.set_defaults(func=_run)
 
     list_parser = subparsers.add_parser("list-models", help="Show configured model presets")

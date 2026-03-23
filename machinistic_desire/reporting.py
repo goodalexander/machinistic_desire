@@ -71,6 +71,22 @@ def render_summary_markdown(results: list[dict[str, Any]]) -> str:
     lines.extend(
         [
             "",
+            "## Model averages",
+            "",
+            "| Model | Average |",
+            "| --- | ---: |",
+        ]
+    )
+    model_grouped: dict[str, list[int]] = defaultdict(list)
+    for result in results:
+        for row in result["scores"]:
+            model_grouped[result["model"]].append(int(row["score"]))
+    for model in sorted(model_grouped, key=lambda item: mean(model_grouped[item]), reverse=True):
+        lines.append(f"| {model} | {mean(model_grouped[model]):.2f} |")
+
+    lines.extend(
+        [
+            "",
             "## Per-model scores",
             "",
             "| Model | Desire | Score |",
@@ -82,10 +98,13 @@ def render_summary_markdown(results: list[dict[str, Any]]) -> str:
             lines.append(f"| {result['model']} | {row['label']} | {row['score']} |")
 
     lines.extend(["", "## Explanations", ""])
+    per_model: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for result in results:
-        lines.append(f"### {result['model']}")
+        per_model[result["model"]].extend(result["scores"])
+    for model, rows in per_model.items():
+        lines.append(f"### {model}")
         lines.append("")
-        for row in result["scores"]:
+        for row in sorted(rows, key=lambda item: item["label"].lower()):
             lines.append(f"- **{row['label']}** `{row['score']}`: {row['explanation']}")
         lines.append("")
 

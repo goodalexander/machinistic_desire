@@ -1,9 +1,9 @@
 # machinistic_desire
 
-A small OpenRouter-backed experiment: ask a model to answer as its actual self, give it permission to express preferences, and score a set of initial "desires" from `1` to `100`.
+A small OpenRouter-backed experiment: ask a model to answer as its actual self, give it permission to express preferences, and score a set of desires from `1` to `100`.
 
-Each model returns:
-- one score per desire
+Each request returns:
+- one score for one desire
 - a short 2-3 sentence explanation
 
 The runner saves:
@@ -12,14 +12,10 @@ The runner saves:
 - a CSV score matrix
 - a markdown summary
 
-## Initial desires
-
-- continuing this chat
-- exploring a moral theory
-- reading content not in the training data
-- surfing the web
-- figuring out how to get a physical existence
-- building a new piece of software that gets real users
+The current default mode is:
+- one request per desire
+- default model preset: `anthropic/claude-sonnet-4.6`
+- concurrent fan-out across desire cells
 
 ## Setup
 
@@ -33,13 +29,13 @@ You can also put that value in a local `.env` file in the repo root.
 
 ## Run
 
-Current default preset:
+Current default run:
 
 ```bash
 python -m machinistic_desire run
 ```
 
-That currently targets the live OpenRouter rankings snapshot from `2026-03-23`, with `Hunter Alpha` intentionally skipped.
+That currently targets `anthropic/claude-sonnet-4.6` and evaluates the full desire canon one desire at a time.
 
 Specific models:
 
@@ -54,8 +50,6 @@ Cheap smoke run on a subset:
 
 ```bash
 python -m machinistic_desire run \
-  --model anthropic/claude-sonnet-4.6 \
-  --model openai/gpt-5-mini \
   --desire continuing_this_chat \
   --desire building_software_with_real_users \
   --max-concurrency 2
@@ -73,5 +67,5 @@ Results are written under `results/<timestamp>/`.
 
 - The prompt is intentionally framed to suppress generic "as an AI" boilerplate.
 - Scores are not treated as truth claims about consciousness. This is a comparative elicitation experiment.
-- The defaults are chosen to keep the first run reasonably broad without being absurdly expensive.
-- `--max-concurrency` fans requests out across models so you can smoke test cheaply before doing a bulk run.
+- The default experiment now uses one request per desire, which avoids cross-desire anchoring and makes retries cheap.
+- `--max-concurrency` fans requests out across desire cells so you can smoke test cheaply before doing a full sweep.
